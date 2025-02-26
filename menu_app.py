@@ -21,7 +21,7 @@ except ImportError:
     HAS_WINOTIFY = False
 
 class MenuApp:
-    VERSION = "1.0.1"  # 当前版本号
+    VERSION = "1.0.0"  # 当前版本号
 
     def get_resource_path(self, relative_path):
         """获取资源文件的路径"""
@@ -1194,18 +1194,20 @@ class MenuApp:
     def check_for_updates(self):
         """检查是否有新版本，并提供自动更新功能"""
         try:
-            # 从 GitHub 获取最新版本信息
+            # 从Gitee获取最新版本信息
             response = requests.get(
-                "https://api.github.com/repos/inueue/menu-app/releases/latest",
+                "https://gitee.com/api/v5/repos/inueue/menu-app/releases/latest",
                 timeout=5
             )
             if response.status_code == 200:
-                latest_version = response.json()["tag_name"].lstrip("v")
+                data = response.json()
+                # Gitee API返回的标签名可能不同于GitHub
+                latest_version = data["tag_name"].lstrip("v")
                 
                 # 比较版本号
                 if version.parse(latest_version) > version.parse(self.VERSION):
                     # 查找zip格式的更新包
-                    for asset in response.json()["assets"]:
+                    for asset in data["assets"]:
                         if asset["name"].endswith(".zip"):
                             download_url = asset["browser_download_url"]
                             
@@ -1219,7 +1221,7 @@ class MenuApp:
                             return
                     
                     # 如果没有找到zip包，则提供手动更新链接
-                    download_url = response.json()["html_url"]
+                    download_url = data["html_url"]
                     if messagebox.askyesno(
                         "发现新版本",
                         f"当前版本：{self.VERSION}\n"
