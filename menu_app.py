@@ -179,8 +179,20 @@ class MenuApp:
         
         # 创建右键菜单
         self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="添加", command=self.add_dish)
         self.context_menu.add_command(label="修改", command=self.edit_selected_dish)
         self.context_menu.add_command(label="删除", command=self.delete_selected_dish)
+        
+        # 初始化默认菜单
+        self.default_menu = self.menu_items.copy()  # 保存一份默认菜单的副本
+        
+        # 添加当前页面名称变量
+        self.current_page = "佳佳美食"
+        
+        # 添加页面管理字典，用于存储不同页面的菜单
+        self.pages = {
+            "佳佳美食": self.menu_items
+        }
         
         self.create_widgets()
         self.update_menu_display()
@@ -206,11 +218,52 @@ class MenuApp:
         buttons_container = ttk.Frame(button_frame)
         buttons_container.pack(expand=True)
         
-        # 按钮
-        ttk.Button(buttons_container, text="导入菜单", command=self.import_menu).pack(side=tk.LEFT, padx=5)
-        ttk.Button(buttons_container, text="导出菜单", command=self.export_menu).pack(side=tk.LEFT, padx=5)
-        ttk.Button(buttons_container, text="添加菜品", command=self.add_dish).pack(side=tk.LEFT, padx=5)
-        ttk.Button(buttons_container, text="设置", command=self.show_price_weights).pack(side=tk.LEFT, padx=5)
+        # 创建统一样式的按钮
+        button_style = {
+            'width': 8,  # 统一按钮宽度
+            'padding': (5, 2)  # 内部填充
+        }
+        
+        # 按钮布局
+        ttk.Button(
+            buttons_container, 
+            text="导入菜单", 
+            command=self.import_menu,
+            **button_style
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            buttons_container, 
+            text="导出菜单", 
+            command=self.export_menu,
+            **button_style
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # 页面选择按钮
+        self.page_menu = tk.Menu(self.root, tearoff=0)
+        self.page_button = ttk.Button(
+            buttons_container, 
+            text="佳佳美食",
+            **button_style,
+            command=lambda: self.page_menu.post(
+                self.page_button.winfo_rootx(),
+                self.page_button.winfo_rooty() + self.page_button.winfo_height()
+            )
+        )
+        self.page_button.pack(side=tk.LEFT, padx=5)
+        
+        # 添加页面管理选项
+        self.page_menu.add_command(label="佳佳美食", command=lambda: self.switch_page("佳佳美食"))
+        self.page_menu.add_separator()
+        self.page_menu.add_command(label="增加页面", command=self.add_page)
+        self.page_menu.add_command(label="删除页面", command=self.delete_page)
+        
+        ttk.Button(
+            buttons_container, 
+            text="设置", 
+            command=self.show_price_weights,
+            **button_style
+        ).pack(side=tk.LEFT, padx=5)
         
         # 菜单列表框架
         menu_frame = ttk.LabelFrame(main_frame, text="当前菜单", padding="5")
@@ -791,33 +844,41 @@ class MenuApp:
         try:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r', encoding='utf-8') as file:
-                    section = ""
-                    saved_menu = {}
+                    current_page = None
+                    self.pages = {}
                     self.selected_dishes.clear()
+                    
+                    # 先初始化默认页面为原始菜单
+                    self.pages["佳佳美食"] = self.default_menu.copy()
                     
                     for line in file:
                         line = line.strip()
                         if not line:
                             continue
-                            
-                        if line == "[Menu]":
-                            section = "menu"
+                        
+                        if line.startswith("[Page:"):
+                            current_page = line[6:-1]  # 提取页面名称
+                            if current_page != "佳佳美食":  # 跳过默认页面
+                                self.pages[current_page] = {}
                             continue
                         elif line == "[Selected]":
-                            section = "selected"
+                            current_page = None
                             continue
-                            
-                        if section == "menu":
+                        
+                        if current_page and current_page != "佳佳美食":  # 只处理非默认页面
                             try:
                                 name, price, dish_type = line.split(',')
-                                saved_menu[name] = (int(price), dish_type)
+                                self.pages[current_page][name] = (int(price), dish_type)
                             except Exception as e:
                                 print(f"解析菜品失败: {line}, 错误: {str(e)}")
-                        elif section == "selected":
+                        elif not current_page:  # [Selected] 部分
                             self.selected_dishes[line] = True
                     
-                    if saved_menu:
-                        self.menu_items = saved_menu
+                    # 更新当前菜单
+                    self.menu_items = self.pages["佳佳美食"]
+                    
+                    # 更新页面菜单
+                    self.update_page_menu()
         except Exception as e:
             print(f"加载菜单失败: {str(e)}")
             
@@ -831,13 +892,15 @@ class MenuApp:
             
             # 保存菜单
             with open(self.config_file, 'w', encoding='utf-8') as file:
-                # 保存菜单部分
-                file.write("[Menu]\n")
-                for name, (price, dish_type) in self.menu_items.items():
-                    file.write(f"{name},{price},{dish_type}\n")
+                # 保存所有页面
+                for page_name, menu_items in self.pages.items():
+                    file.write(f"[Page:{page_name}]\n")
+                    for name, (price, dish_type) in menu_items.items():
+                        file.write(f"{name},{price},{dish_type}\n")
+                    file.write("\n")
                 
                 # 保存选中状态部分
-                file.write("\n[Selected]\n")
+                file.write("[Selected]\n")
                 for name in self.selected_dishes:
                     file.write(f"{name}\n")
             return True
@@ -1192,7 +1255,7 @@ class MenuApp:
             self.avg_price_label.configure(text="人均: 0元")
 
     def check_for_updates(self):
-        """检查是否有新版本，并提供自动更新功能"""
+        """检查是否有新版本"""
         try:
             # 从Gitee获取最新版本信息
             response = requests.get(
@@ -1201,39 +1264,40 @@ class MenuApp:
             )
             if response.status_code == 200:
                 data = response.json()
-                # Gitee API返回的标签名可能不同于GitHub
                 latest_version = data["tag_name"].lstrip("v")
                 
                 # 比较版本号
                 if version.parse(latest_version) > version.parse(self.VERSION):
                     # 查找zip格式的更新包
+                    download_url = None
                     for asset in data["assets"]:
                         if asset["name"].endswith(".zip"):
                             download_url = asset["browser_download_url"]
-                            
-                            if messagebox.askyesno(
-                                "发现新版本",
-                                f"当前版本：{self.VERSION}\n"
-                                f"最新版本：{latest_version}\n\n"
-                                "是否自动更新到最新版本？"
-                            ):
-                                self.download_and_install_update(download_url, latest_version)
-                            return
+                            break
                     
-                    # 如果没有找到zip包，则提供手动更新链接
-                    download_url = data["html_url"]
-                    if messagebox.askyesno(
-                        "发现新版本",
-                        f"当前版本：{self.VERSION}\n"
-                        f"最新版本：{latest_version}\n\n"
-                        "未找到自动更新包，是否前往下载页面手动更新？"
-                    ):
-                        webbrowser.open(download_url)
+                    if download_url:
+                        if messagebox.askyesno(
+                            "发现新版本",
+                            f"当前版本：{self.VERSION}\n"
+                            f"最新版本：{latest_version}\n\n"
+                            "是否下载新版本？"
+                        ):
+                            self.reliable_vbs_update(download_url, latest_version)
+                    else:
+                        # 如果没有找到zip包，则提供手动更新链接
+                        download_url = data["html_url"]
+                        if messagebox.askyesno(
+                            "发现新版本",
+                            f"当前版本：{self.VERSION}\n"
+                            f"最新版本：{latest_version}\n\n"
+                            "未找到更新包，是否前往下载页面手动更新？"
+                        ):
+                            webbrowser.open(download_url)
         except Exception as e:
             print(f"检查更新失败: {str(e)}")
 
-    def download_and_install_update(self, download_url, version):
-        """下载并安装更新"""
+    def reliable_vbs_update(self, download_url, version):
+        """使用最可靠的VBS方法实现静默更新"""
         try:
             # 创建进度窗口
             progress_window = tk.Toplevel(self.root)
@@ -1250,56 +1314,135 @@ class MenuApp:
             self.center_window(progress_window)
             
             # 创建标签和进度条
-            ttk.Label(progress_window, text=f"正在下载 v{version} 更新...", padding=10).pack()
+            status_label = ttk.Label(progress_window, text=f"正在下载 v{version} 更新...", padding=10)
+            status_label.pack()
             progress = ttk.Progressbar(progress_window, length=250, mode="indeterminate")
             progress.pack(padx=20, pady=10)
             progress.start()
             
-            # 获取应用程序路径
+            # 获取程序信息
             app_path = os.path.abspath(sys.argv[0])
             app_dir = os.path.dirname(app_path)
+            app_name = os.path.basename(app_path)
+            pid = os.getpid()
             
             def download_thread():
                 try:
-                    # 创建临时目录
+                    # 下载到临时文件夹
                     temp_dir = tempfile.mkdtemp()
-                    zip_path = os.path.join(temp_dir, f"update_v{version}.zip")
+                    zip_path = os.path.join(temp_dir, "update.zip")
                     
                     # 下载更新包
+                    status_label.config(text=f"正在下载更新文件...")
                     urlretrieve(download_url, zip_path)
                     
-                    # 创建更新批处理文件
-                    batch_path = os.path.join(temp_dir, "update.bat")
-                    with open(batch_path, "w", encoding="utf-8") as f:  # 使用UTF-8编码
+                    # 解压文件
+                    extract_dir = os.path.join(temp_dir, "extracted")
+                    os.makedirs(extract_dir, exist_ok=True)
+                    status_label.config(text=f"正在准备更新文件...")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(extract_dir)
+                    
+                    # 创建批处理更新文件
+                    bat_path = os.path.join(temp_dir, "update.bat")
+                    with open(bat_path, "w", encoding="gbk") as f:
                         f.write("@echo off\n")
-                        f.write("chcp 65001\n")  # 设置命令行为UTF-8编码
-                        f.write("echo 正在更新，请稍候...\n")
-                        f.write(f"timeout /t 1 /nobreak >nul\n")
-                        f.write(f"echo 正在解压更新包...\n")
-                        # 使用PowerShell处理中文路径
-                        f.write(f"powershell -command \"Expand-Archive -Path '{zip_path}' -DestinationPath '{app_dir}' -Force\"\n")
-                        f.write(f"echo 更新完成！\n")
-                        f.write(f"echo 正在启动应用...\n")
+                        f.write("title 程序更新\n")
+                        f.write("color 0A\n")
+                        f.write("echo 正在关闭应用程序...\n")
+                        f.write(f"taskkill /F /PID {pid} /T >nul 2>&1\n")
+                        f.write("echo 正在等待进程结束...\n")
+                        f.write("timeout /t 3 /nobreak >nul\n")
+                        
+                        # 先删除原有EXE文件
+                        f.write("echo 正在删除旧版本...\n")
+                        f.write(f"del /F /Q \"{app_path}\" >nul 2>&1\n")
+                        
+                        # 删除可能存在的临时文件
+                        f.write(f"del /F /Q \"{app_dir}\\*.pyd\" >nul 2>&1\n")
+                        f.write(f"del /F /Q \"{app_dir}\\*.dll\" >nul 2>&1\n")
+                        
+                        # 查找并复制新的EXE文件
+                        found_exe = False
+                        for root, dirs, files in os.walk(extract_dir):
+                            for file in files:
+                                if file.lower().endswith('.exe'):
+                                    src_path = os.path.join(root, file)
+                                    # 使用原来的文件名而不是下载的文件名
+                                    f.write("echo 正在复制新版本...\n")
+                                    f.write(f"copy /Y \"{src_path}\" \"{app_path}\" >nul\n")
+                                    found_exe = True
+                                    break
+                            if found_exe:
+                                break
+                        
+                        # 如果没找到EXE，则复制所有文件
+                        if not found_exe:
+                            f.write("echo 正在复制更新文件...\n")
+                            f.write(f"xcopy /E /Y \"{extract_dir}\\*\" \"{app_dir}\\\" >nul\n")
+                        
+                        # 复制其他可能的资源文件
+                        f.write(f"xcopy /E /Y \"{extract_dir}\\*.dll\" \"{app_dir}\\\" >nul 2>&1\n")
+                        f.write(f"xcopy /E /Y \"{extract_dir}\\*.pyd\" \"{app_dir}\\\" >nul 2>&1\n")
+                        f.write(f"xcopy /E /Y \"{extract_dir}\\*.ico\" \"{app_dir}\\\" >nul 2>&1\n")
+                        
+                        # 启动应用程序
+                        f.write("echo 更新完成! 正在启动新版本...\n")
+                        f.write("ping 127.0.0.1 -n 2 >nul\n")  # 短暂延迟
+                        f.write(f"cd /d \"{app_dir}\"\n")
                         f.write(f"start \"\" \"{app_path}\"\n")
+                        
+                        # 清理临时文件
+                        f.write("echo 正在清理临时文件...\n")
+                        f.write(f"rmdir /S /Q \"{temp_dir}\" >nul 2>&1\n")
+                        f.write("echo 更新已完成!\n")
+                        f.write("timeout /t 3 >nul\n")
                         f.write("exit\n")
+                    
+                    # 创建极简可靠的VBS启动器
+                    with open(os.path.join(temp_dir, "silent.vbs"), "w", encoding="utf-8") as f:
+                        # 完全不使用变量，直接硬编码批处理路径
+                        bat_path_safe = bat_path.replace("\\", "\\\\")
+                        f.write('CreateObject("WScript.Shell").Run "' + bat_path_safe + '", 0, False')
                     
                     # 关闭进度窗口
                     progress_window.destroy()
                     
-                    # 提示用户
-                    if messagebox.showinfo("下载完成", "更新包已下载完成，点击确定将关闭程序并安装更新。"):
-                        # 保存当前设置
-                        self.save_menu()
+                    # 询问用户是否更新
+                    if messagebox.askyesno("文件覆盖确认", 
+                                     f"更新将覆盖原有程序文件。\n\n"
+                                     f"是否继续更新到版本 v{version}？",
+                                     icon=messagebox.WARNING):
                         
-                        # 运行更新批处理
-                        subprocess.Popen([batch_path], shell=True, encoding="utf-8")
-                        
-                        # 退出应用
-                        self.root.quit()
-                        sys.exit(0)
-                        
+                        # 确认开始更新
+                        if messagebox.showinfo("更新准备就绪", 
+                                        f"已准备好更新到 v{version}。\n\n"
+                                        "点击确定后，程序将关闭并自动更新。\n"
+                                        "更新完成后，程序会自动重启。\n\n"
+                                        "请保存您的工作，然后点击确定继续。"):
+                            # 保存设置
+                            self.save_menu()
+                            
+                            # 直接调用wscript.exe
+                            subprocess.Popen([
+                                "wscript.exe", 
+                                os.path.join(temp_dir, "silent.vbs")
+                            ], shell=False)
+                    else:
+                        # 用户取消
+                        messagebox.showinfo("更新已取消", "您取消了更新操作。")
+                        # 清理临时文件
+                        try:
+                            import shutil
+                            shutil.rmtree(temp_dir, ignore_errors=True)
+                        except:
+                            pass
+                
                 except Exception as e:
-                    progress_window.destroy()
+                    try:
+                        progress_window.destroy()
+                    except:
+                        pass
                     messagebox.showerror("更新失败", f"更新过程中发生错误：{str(e)}")
             
             # 启动下载线程
@@ -1307,7 +1450,94 @@ class MenuApp:
             threading.Thread(target=download_thread, daemon=True).start()
             
         except Exception as e:
-            messagebox.showerror("更新失败", f"准备更新过程中发生错误：{str(e)}")
+            messagebox.showerror("更新失败", f"准备更新时发生错误：{str(e)}")
+
+    def add_page(self):
+        """添加新页面"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("添加页面")
+        dialog.geometry("250x100")
+        dialog.resizable(False, False)
+        
+        # 设置图标
+        icon_path = self.get_resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            dialog.iconbitmap(icon_path)
+        
+        # 居中显示
+        self.center_window(dialog)
+        
+        ttk.Label(dialog, text="页面名称:").pack(pady=5)
+        entry = ttk.Entry(dialog, width=30)
+        entry.pack(pady=5)
+        
+        def save():
+            name = entry.get().strip()
+            if name:
+                if name in self.pages:
+                    messagebox.showwarning("警告", "页面名称已存在！")
+                    return
+                self.pages[name] = {}  # 创建新的空菜单
+                self.page_menu.insert_separator(len(self.pages) - 1)
+                self.page_menu.insert_command(len(self.pages) - 1, 
+                                            label=name,
+                                            command=lambda n=name: self.switch_page(n))
+                dialog.destroy()
+                self.switch_page(name)
+        
+        ttk.Button(dialog, text="确定", command=save).pack(pady=5)
+
+    def delete_page(self):
+        """删除当前页面"""
+        if self.current_page == "佳佳美食":
+            messagebox.showwarning("警告", "默认页面不能删除！")
+            return
+        
+        if messagebox.askyesno("确认删除", f"确定要删除页面 {self.current_page} 吗？"):
+            # 删除页面数据
+            del self.pages[self.current_page]
+            
+            # 更新菜单项
+            menu_items = self.page_menu.index("end")
+            for i in range(menu_items + 1):
+                try:
+                    if self.page_menu.entrycget(i, "label") == self.current_page:
+                        self.page_menu.delete(i)
+                        # 删除对应的分隔符
+                        if i > 0 and self.page_menu.type(i-1) == "separator":
+                            self.page_menu.delete(i-1)
+                        break
+                except:
+                    continue
+            
+            # 切换到默认页面
+            self.switch_page("佳佳美食")
+
+    def switch_page(self, page_name):
+        """切换到指定页面"""
+        self.current_page = page_name
+        self.menu_items = self.pages[page_name]
+        self.page_button.configure(text=f"{page_name}")
+        self.update_menu_display()
+        self.selected_dishes.clear()
+        self.update_selected_display()
+
+    def update_page_menu(self):
+        """更新页面下拉菜单"""
+        # 清空现有菜单项
+        self.page_menu.delete(0, 'end')
+        
+        # 添加所有页面
+        for page_name in self.pages.keys():
+            self.page_menu.add_command(
+                label=page_name,
+                command=lambda n=page_name: self.switch_page(n)
+            )
+        
+        # 添加分隔符和管理选项
+        self.page_menu.add_separator()
+        self.page_menu.add_command(label="增加页面", command=self.add_page)
+        self.page_menu.add_command(label="删除页面", command=self.delete_page)
 
 if __name__ == "__main__":
     root = tk.Tk()
