@@ -1,1 +1,0 @@
-pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --name "今天吃什么" --hidden-import winotify menu_app.py
