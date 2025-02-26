@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --name "今天吃什么" --hidden-import requests --hidden-import packaging menu_app.py
