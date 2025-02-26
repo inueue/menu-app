@@ -21,7 +21,7 @@ except ImportError:
     HAS_WINOTIFY = False
 
 class MenuApp:
-    VERSION = "1.0.0"  # 当前版本号
+    VERSION = "1.0.1"  # 当前版本号
 
     def get_resource_path(self, relative_path):
         """获取资源文件的路径"""
