@@ -61,29 +61,13 @@ class MenuApp:
         y = (screen_height - window_height) // 2
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         
-        # 设置配置文件路径
-        if getattr(sys, 'frozen', False):
-            # 如果是打包后的exe，配置文件保存在用户目录下的 MenuApp 文件夹
-            config_dir = os.path.join(os.path.expanduser('~'), 'MenuApp')
-            if not os.path.exists(config_dir):
-                os.makedirs(config_dir)
-            self.config_file = os.path.join(config_dir, 'menu_config.txt')
-        else:
-            # 如果是python脚本，配置文件保存在当前目录
-            self.config_file = 'menu_config.txt'
-        
-        # 确保配置文件目录存在
-        config_dir = os.path.dirname(self.config_file)
-        if config_dir and not os.path.exists(config_dir):
-            os.makedirs(config_dir)
-        
         # 设置程序图标
         icon_path = self.get_resource_path('icon.ico')
         if os.path.exists(icon_path):
             self.root.iconbitmap(icon_path)
         
         # 初始化默认菜单
-        self.menu_items = {
+        self.default_menu = {
             "农家小炒肉": (25, "荤菜"),
             "川味回锅肉": (28, "荤菜"),
             "青椒肉丝": (25, "荤菜"),
@@ -143,7 +127,7 @@ class MenuApp:
             "番茄牛肉": (32, "荤菜"),
             "金针菇日本豆腐煲": (28, "荤菜"),
             "鱼香肉丝": (25, "荤菜"),
-            "鱼香茄子煲": (22, "荤菜"),
+            "鱼香茄子煲": (22, "素菜"),
             "土豆烧茄子": (22, "素菜"),
             "茄角之恋": (20, "素菜"),
             "红烧茄子": (20, "素菜"),
@@ -160,8 +144,39 @@ class MenuApp:
         }
         
         # 初始化变量
+        self.menu_items = self.default_menu.copy()  # 使用默认菜单的副本
         self.selected_items = []
         self.selected_dishes = {}
+        
+        # 创建页面菜单（移到加载菜单之前）
+        self.page_menu = tk.Menu(self.root, tearoff=0)
+        
+        # 设置配置文件路径
+        if getattr(sys, 'frozen', False):
+            # 如果是打包后的exe，配置文件保存在用户目录下的 MenuApp 文件夹
+            config_dir = os.path.join(os.path.expanduser('~'), 'MenuApp')
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+            self.config_file = os.path.join(config_dir, 'menu_config.txt')
+        else:
+            # 如果是python脚本，配置文件保存在当前目录
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            self.config_file = os.path.join(script_dir, 'menu_config.txt')
+        
+        # 确保配置文件目录存在
+        config_dir = os.path.dirname(self.config_file)
+        if config_dir and not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+        
+        print(f"配置文件路径: {self.config_file}")  # 添加调试信息
+        
+        # 添加当前页面名称变量
+        self.current_page = "佳佳美食"
+        
+        # 添加页面管理字典，用于存储不同页面的菜单
+        self.pages = {
+            "佳佳美食": self.menu_items
+        }
         
         # 初始化价格权重配置
         self.price_weights = {
@@ -183,25 +198,20 @@ class MenuApp:
         self.context_menu.add_command(label="修改", command=self.edit_selected_dish)
         self.context_menu.add_command(label="删除", command=self.delete_selected_dish)
         
-        # 初始化默认菜单
-        self.default_menu = self.menu_items.copy()  # 保存一份默认菜单的副本
-        
-        # 添加当前页面名称变量
-        self.current_page = "佳佳美食"
-        
-        # 添加页面管理字典，用于存储不同页面的菜单
-        self.pages = {
-            "佳佳美食": self.menu_items
-        }
-        
-        self.create_widgets()
-        self.update_menu_display()
-        
         # 绑定关闭窗口事件
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        # 检查更新
-        self.check_for_updates()
+        # 移除自动检查更新
+        # self.check_for_updates()  # 删除这行
+        
+        # 创建界面组件
+        self.create_widgets()
+        
+        # 更新菜单显示
+        self.update_menu_display()
+        
+        # 添加禁用权重的配置
+        self.disable_weights = False  # 默认不禁用
         
     def create_widgets(self):
         main_frame = ttk.Frame(self.root, padding=(10, 10, 10, 0))
@@ -240,10 +250,9 @@ class MenuApp:
         ).pack(side=tk.LEFT, padx=5)
         
         # 页面选择按钮
-        self.page_menu = tk.Menu(self.root, tearoff=0)
         self.page_button = ttk.Button(
             buttons_container, 
-            text="佳佳美食",
+            text=self.current_page,  # 使用当前页面名称
             **button_style,
             command=lambda: self.page_menu.post(
                 self.page_button.winfo_rootx(),
@@ -252,28 +261,27 @@ class MenuApp:
         )
         self.page_button.pack(side=tk.LEFT, padx=5)
         
-        # 添加页面管理选项
-        self.page_menu.add_command(label="佳佳美食", command=lambda: self.switch_page("佳佳美食"))
-        self.page_menu.add_separator()
-        self.page_menu.add_command(label="增加页面", command=self.add_page)
-        self.page_menu.add_command(label="删除页面", command=self.delete_page)
+        # 更新页面菜单
+        self.update_page_menu()
         
-        ttk.Button(
+        # 设置按钮改为帮助按钮
+        self.settings_button = ttk.Button(
             buttons_container, 
-            text="设置", 
-            command=self.show_price_weights,
+            text="帮助", 
+            command=self.show_settings,
             **button_style
-        ).pack(side=tk.LEFT, padx=5)
+        )
+        self.settings_button.pack(side=tk.LEFT, padx=5)
         
         # 菜单列表框架
-        menu_frame = ttk.LabelFrame(main_frame, text="当前菜单", padding="5")
-        menu_frame.grid(row=1, column=0, pady=(0, 10), sticky=(tk.W, tk.E, tk.N, tk.S))  # 底部间距10
-        menu_frame.grid_columnconfigure(0, weight=1)
+        self.menu_frame = ttk.LabelFrame(main_frame, text=f"{self.current_page}", padding="5")
+        self.menu_frame.grid(row=1, column=0, pady=(0, 10), sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.menu_frame.grid_columnconfigure(0, weight=1)
         main_frame.grid_rowconfigure(1, weight=1)
         
         # 创建树形视图
         columns = ('选择', '序号', '名称', '价格', '类型')
-        self.tree = ttk.Treeview(menu_frame, columns=columns, show='headings')
+        self.tree = ttk.Treeview(self.menu_frame, columns=columns, show='headings')
         
         # 设置列标题和宽度
         self.tree.heading('选择', text='选择')
@@ -291,7 +299,7 @@ class MenuApp:
         self.tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 添加滚动条
-        scrollbar = ttk.Scrollbar(menu_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar = ttk.Scrollbar(self.menu_frame, orient=tk.VERTICAL, command=self.tree.yview)
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         self.tree.configure(yscrollcommand=scrollbar.set)
         
@@ -458,7 +466,6 @@ class MenuApp:
                     
                     # 更新显示并保存
                     self.update_menu_display()
-                    self.save_menu()
                     
                     # 定位到新添加的菜品
                     for item in self.tree.get_children():
@@ -481,6 +488,7 @@ class MenuApp:
         ttk.Button(button_frame, text="保存", command=save_dish).pack(expand=True)
 
     def on_tree_click(self, event):
+        """点击树形视图时的处理"""
         region = self.tree.identify_region(event.x, event.y)
         if region == "cell":  # 点击任意单元格
             item = self.tree.identify_row(event.y)
@@ -506,6 +514,9 @@ class MenuApp:
                     # 恢复之前的选中状态
                     if selected_items:
                         self.tree.selection_set(selected_items)
+                    
+                    # 添加自动保存
+                    self.save_menu()
                 else:  # 点击其他列
                     # 只改变选中状态
                     self.tree.selection_set(item)
@@ -537,6 +548,9 @@ class MenuApp:
         
         # 更新总价
         self.total_price_label.configure(text=f"总价: {int(total_price)}元")
+        
+        # 在函数末尾添加自动保存
+        self.save_menu()
 
     def update_menu_display(self):
         # 清空现有显示
@@ -592,6 +606,9 @@ class MenuApp:
                             values=('⬜', str(serial_number), name, f"{int(price)}", "素菜"))
             serial_number += 1
 
+        # 在函数末尾添加自动保存
+        self.save_menu()
+
     def import_menu(self):
         file_path = filedialog.askopenfilename(
             title="选择菜单文件",
@@ -605,15 +622,27 @@ class MenuApp:
                         name, price, dish_type = line.strip().split(',')
                         new_menu[name] = (float(price), dish_type)
                     if new_menu:
+                        print(f"导入菜单到页面: {self.current_page}")
+                        # 更新当前页面的菜单
+                        self.pages[self.current_page] = new_menu
                         self.menu_items = new_menu
-                        self.update_menu_display()
-                        messagebox.showinfo("成功", "菜单导入成功！")
+                        self.selected_dishes.clear()
+                        
+                        # 先保存配置
+                        if self.save_menu():
+                            print(f"导入菜单保存成功")
+                            # 再更新显示
+                            self.update_menu_display()
+                            self.update_selected_display()
+                            messagebox.showinfo("成功", "菜单导入成功！")
+                        else:
+                            print(f"导入菜单保存失败")
+                            messagebox.showerror("错误", "菜单导入失败：保存配置时出错")
             except Exception as e:
-                # 创建错误消息窗口并居中显示
                 error_window = messagebox.showerror("错误", f"导入失败：{str(e)}")
                 if error_window:
                     self.center_window(error_window)
-                
+
     def export_menu(self):
         file_path = filedialog.asksaveasfilename(
             title="保存菜单",
@@ -817,6 +846,7 @@ class MenuApp:
             # 显示通知
             total_selected = len(self.selected_items)
             if total_selected > 0:
+                self.save_menu()
                 if HAS_WINOTIFY:
                     # 获取图标路径
                     icon_path = self.get_resource_path("icon.ico")
@@ -843,14 +873,20 @@ class MenuApp:
         """从配置文件加载菜单"""
         try:
             if os.path.exists(self.config_file):
+                print(f"正在从 {self.config_file} 加载配置")
                 with open(self.config_file, 'r', encoding='utf-8') as file:
                     current_page = None
-                    self.pages = {}
+                    self.pages = {}  # 清空现有页面
                     self.selected_dishes.clear()
                     
-                    # 先初始化默认页面为原始菜单
-                    self.pages["佳佳美食"] = self.default_menu.copy()
+                    # 读取文件内容
+                    content = file.read()
+                    print(f"配置文件内容:\n{content}")
                     
+                    # 重置文件指针
+                    file.seek(0)
+                    
+                    # 读取所有页面和菜品
                     for line in file:
                         line = line.strip()
                         if not line:
@@ -858,30 +894,80 @@ class MenuApp:
                         
                         if line.startswith("[Page:"):
                             current_page = line[6:-1]  # 提取页面名称
-                            if current_page != "佳佳美食":  # 跳过默认页面
+                            print(f"发现页面: {current_page}")
+                            if current_page not in self.pages:
+                                print(f"创建页面: {current_page}")
                                 self.pages[current_page] = {}
                             continue
                         elif line == "[Selected]":
                             current_page = None
                             continue
                         
-                        if current_page and current_page != "佳佳美食":  # 只处理非默认页面
+                        if current_page is not None:  # 处理菜品数据
                             try:
                                 name, price, dish_type = line.split(',')
-                                self.pages[current_page][name] = (int(price), dish_type)
+                                self.pages[current_page][name] = (float(price), dish_type)
+                                print(f"加载菜品: {name} 到页面 {current_page}")
                             except Exception as e:
                                 print(f"解析菜品失败: {line}, 错误: {str(e)}")
-                        elif not current_page:  # [Selected] 部分
+                        else:  # [Selected] 部分
                             self.selected_dishes[line] = True
                     
-                    # 更新当前菜单
-                    self.menu_items = self.pages["佳佳美食"]
+                    print(f"加载完成，所有页面: {list(self.pages.keys())}")
+                    
+                    # 如果没有加载到任何页面，使用默认菜单
+                    if not self.pages:
+                        print("没有加载到任何页面，使用默认菜单")
+                        self.pages["佳佳美食"] = self.default_menu.copy()
+                    
+                    # 尝试加载上次的页面状态
+                    last_state_file = os.path.join(os.path.dirname(self.config_file), 'last_state.json')
+                    if os.path.exists(last_state_file):
+                        try:
+                            with open(last_state_file, 'r', encoding='utf-8') as f:
+                                last_state = json.load(f)
+                                if last_state['current_page'] in self.pages:
+                                    self.current_page = last_state['current_page']
+                                    print(f"恢复到上次的页面: {self.current_page}")
+                                else:
+                                    self.current_page = next(iter(self.pages.keys()))
+                        except Exception as e:
+                            print(f"加载上次状态失败: {str(e)}")
+                            self.current_page = next(iter(self.pages.keys()))
+                    else:
+                        self.current_page = next(iter(self.pages.keys()))
+                    
+                    # 更新当前菜单和标题
+                    self.menu_items = self.pages[self.current_page]
+                    if hasattr(self, 'menu_frame'):
+                        self.menu_frame.configure(text=f"{self.current_page}")  # 只显示页面名称
                     
                     # 更新页面菜单
                     self.update_page_menu()
+                    
+                    print(f"加载配置成功")
+                    print(f"已加载页面: {list(self.pages.keys())}")
+                    print(f"当前页面: {self.current_page}")
+                    print(f"当前菜单: {self.menu_items}")
+                    
+            else:
+                print(f"配置文件不存在: {self.config_file}")
+                # 如果配置文件不存在，使用默认菜单
+                self.pages = {"佳佳美食": self.default_menu.copy()}
+                self.menu_items = self.default_menu.copy()
+                self.current_page = "佳佳美食"
+                self.update_page_menu()
+                # 保存初始配置
+                self.save_menu()
+                
         except Exception as e:
             print(f"加载菜单失败: {str(e)}")
-            
+            # 出错时使用默认菜单
+            self.pages = {"佳佳美食": self.default_menu.copy()}
+            self.menu_items = self.default_menu.copy()
+            self.current_page = "佳佳美食"
+            self.update_page_menu()
+
     def save_menu(self):
         """保存菜单到配置文件"""
         try:
@@ -890,19 +976,32 @@ class MenuApp:
             if config_dir and not os.path.exists(config_dir):
                 os.makedirs(config_dir)
             
+            print(f"正在保存配置到: {self.config_file}")
+            print(f"当前页面: {self.current_page}")
+            print(f"所有页面: {list(self.pages.keys())}")
+            print(f"当前页面菜单内容: {self.menu_items}")
+            
+            # 确保当前页面的菜单内容已同步到pages中
+            self.pages[self.current_page] = self.menu_items.copy()
+            
             # 保存菜单
             with open(self.config_file, 'w', encoding='utf-8') as file:
                 # 保存所有页面
                 for page_name, menu_items in self.pages.items():
+                    print(f"保存页面: {page_name}, 菜品数量: {len(menu_items)}")  # 调试信息
                     file.write(f"[Page:{page_name}]\n")
+                    # 确保菜品信息被正确写入
                     for name, (price, dish_type) in menu_items.items():
                         file.write(f"{name},{price},{dish_type}\n")
-                    file.write("\n")
+                    file.write("\n")  # 页面之间添加空行
                 
                 # 保存选中状态部分
                 file.write("[Selected]\n")
                 for name in self.selected_dishes:
                     file.write(f"{name}\n")
+            
+            print(f"配置保存成功: {self.config_file}")
+            print(f"已保存页面: {list(self.pages.keys())}")
             return True
         except Exception as e:
             error_msg = f"保存失败:\n路径: {self.config_file}\n错误: {str(e)}"
@@ -911,8 +1010,36 @@ class MenuApp:
             return False
 
     def on_closing(self):
-        self.save_menu()
-        self.root.destroy()
+        """程序关闭时的处理"""
+        try:
+            print("正在保存配置...")
+            # 保存当前页面信息到配置文件
+            with open(os.path.join(os.path.dirname(self.config_file), 'last_state.json'), 'w', encoding='utf-8') as f:
+                json.dump({
+                    'current_page': self.current_page,
+                    'selected_dishes': list(self.selected_dishes.keys())
+                }, f, ensure_ascii=False, indent=2)
+            print(f"保存当前页面状态: {self.current_page}")
+            
+            # 保存菜单配置
+            if self.save_menu():
+                print("菜单配置保存成功")
+            else:
+                print("菜单配置保存失败")
+            
+            # 保存价格权重配置
+            try:
+                self.save_price_weights()
+                print("价格权重配置保存成功")
+            except Exception as e:
+                print(f"价格权重配置保存失败: {str(e)}")
+            
+            print("所有配置保存完成")
+        except Exception as e:
+            print(f"保存配置时发生错误: {str(e)}")
+            messagebox.showerror("错误", f"保存配置时发生错误：{str(e)}")
+        finally:
+            self.root.destroy()
 
     def show_context_menu(self, event):
         """显示右键菜单"""
@@ -1075,8 +1202,7 @@ class MenuApp:
                         self.update_selected_display()
                         
                         # 保存更改
-                        if not self.save_menu():
-                            raise Exception("保存到配置文件失败")
+                        self.save_menu()
                         
                         edit_window.destroy()
                         messagebox.showinfo("成功", f"已修改菜品：{new_name}")
@@ -1099,7 +1225,7 @@ class MenuApp:
         weights_window = tk.Toplevel(self.root)
         weights_window.title("价格区间概率设置")
         weights_window.resizable(False, False)
-        weights_window.geometry("280x275")
+        weights_window.geometry("280x300")
         
         # 设置图标
         icon_path = self.get_resource_path("icon.ico")
@@ -1129,46 +1255,82 @@ class MenuApp:
         # 错误提示标签
         error_label = ttk.Label(content_frame, text="", foreground="red")
         error_label.pack(pady=5)
+        
+        # 添加禁用选项
+        disable_var = tk.BooleanVar(value=self.disable_weights)
+        disable_check = ttk.Checkbutton(
+            content_frame,
+            text="禁用权重概率（所有价格区间概率相等）",
+            variable=disable_var,
+            command=lambda: update_entries_state()
+        )
+        disable_check.pack(pady=5)
 
+        def update_entries_state():
+            """更新输入框的启用/禁用状态"""
+            state = 'disabled' if disable_var.get() else 'normal'
+            for entry in entries.values():
+                entry.configure(state=state)
+            
+            # 如果是禁用状态，显示将要设置的值（25%）
+            if disable_var.get():
+                for entry in entries.values():
+                    entry.configure(state='normal')  # 临时启用以更新值
+                    entry.delete(0, tk.END)
+                    entry.insert(0, "25")
+                    entry.configure(state='disabled')  # 重新禁用
+            else:
+                # 恢复到当前保存的值
+                for price_range, entry in entries.items():
+                    entry.configure(state='normal')
+                    entry.delete(0, tk.END)
+                    entry.insert(0, str(self.price_weights[price_range]))
+        
         def validate_and_save():
             try:
-                # 获取所有输入的值
-                new_weights = {}
-                total = 0
-                for price_range, entry in entries.items():
-                    value = entry.get().strip()
-                    # 检查是否为空
-                    if not value:
-                        error_label.config(text=f"{price_range}元区间不能为空")
-                        return
-                    
-                    # 检查是否为整数
-                    try:
-                        value = int(float(value))  # 先转换为float再转为int，处理小数点输入
-                    except ValueError:
-                        error_label.config(text=f"{price_range}元区间请输入整数")
-                        return
-                    
-                    # 检查是否为负数
-                    if value < 0:
-                        error_label.config(text=f"{price_range}元区间不能为负数")
-                        return
-                    
-                    # 检查是否超过100
-                    if value > 100:
-                        error_label.config(text=f"{price_range}元区间不能超过100%")
-                        return
-                    
-                    new_weights[price_range] = value
-                    total += value
+                # 保存禁用状态
+                self.disable_weights = disable_var.get()
                 
-                # 检查总和是否为100
-                if total != 100:  # 严格要求总和为100
-                    error_label.config(text=f"所有概率之和必须等于100%（当前{total}%）")
-                    return
+                if not self.disable_weights:
+                    # 如果不禁用，验证并保存输入的值
+                    new_weights = {}
+                    total = 0
+                    for price_range, entry in entries.items():
+                        value = entry.get().strip()
+                        # 检查是否为空
+                        if not value:
+                            error_label.config(text=f"{price_range}元区间不能为空")
+                            return
+                        
+                        # 检查是否为整数
+                        try:
+                            value = int(float(value))
+                        except ValueError:
+                            error_label.config(text=f"{price_range}元区间请输入整数")
+                            return
+                        
+                        # 检查是否为负数
+                        if value < 0:
+                            error_label.config(text=f"{price_range}元区间不能为负数")
+                            return
+                        
+                        # 检查是否超过100
+                        if value > 100:
+                            error_label.config(text=f"{price_range}元区间不能超过100%")
+                            return
+                        
+                        new_weights[price_range] = value
+                        total += value
+                    
+                    # 检查总和是否为100
+                    if total != 100:
+                        error_label.config(text=f"所有概率之和必须等于100%（当前{total}%）")
+                        return
+                    
+                    # 保存新的权重值
+                    self.price_weights = new_weights
                 
-                # 保存新的权重值
-                self.price_weights = new_weights
+                # 保存配置
                 self.save_price_weights()
                 weights_window.destroy()
                 messagebox.showinfo("成功", "价格区间概率设置已保存")
@@ -1195,11 +1357,26 @@ class MenuApp:
             
             entries[price_range] = entry
             
-            # 在36+元那一行下面添加保存按钮
+            # 在36+元那一行下面添加按钮框架
             if price_range == "36+":
                 button_frame = ttk.Frame(entries_frame)
                 button_frame.pack(pady=10)
-                ttk.Button(button_frame, text="保存", command=validate_and_save, width=8).pack(side=tk.LEFT, padx=5)
+                
+                # 添加禁用选项（放在保存按钮左边）
+                disable_var = tk.BooleanVar(value=self.disable_weights)
+                disable_check = ttk.Checkbutton(
+                    button_frame,
+                    text="禁用权重概率",
+                    variable=disable_var,
+                    command=lambda: update_entries_state()
+                )
+                disable_check.pack(side=tk.LEFT, padx=(0, 10))
+                
+                # 保存按钮
+                ttk.Button(button_frame, text="保存", command=validate_and_save, width=8).pack(side=tk.LEFT)
+        
+        # 根据当前禁用状态更新输入框状态
+        update_entries_state()
 
     def load_price_weights(self):
         """加载价格权重配置"""
@@ -1207,8 +1384,15 @@ class MenuApp:
             weights_file = os.path.join(os.path.dirname(self.config_file), 'price_weights.json')
             if os.path.exists(weights_file):
                 with open(weights_file, 'r', encoding='utf-8') as f:
-                    saved_weights = json.load(f)
-                    self.price_weights.update(saved_weights)
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        if 'weights' in data:
+                            self.price_weights = data['weights']
+                        if 'disabled' in data:
+                            self.disable_weights = data['disabled']
+                    else:
+                        # 兼容旧版本的配置文件
+                        self.price_weights = data
         except Exception as e:
             print(f"加载价格权重失败: {str(e)}")
 
@@ -1217,12 +1401,19 @@ class MenuApp:
         try:
             weights_file = os.path.join(os.path.dirname(self.config_file), 'price_weights.json')
             with open(weights_file, 'w', encoding='utf-8') as f:
-                json.dump(self.price_weights, f, ensure_ascii=False, indent=2)
+                json.dump({
+                    'weights': self.price_weights,
+                    'disabled': self.disable_weights
+                }, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"保存价格权重失败: {str(e)}")
 
     def get_price_weight(self, price):
         """获取指定价格的权重"""
+        if self.disable_weights:
+            return 25  # 禁用权重时，所有区间概率相等（100/4=25）
+        
+        # 不禁用时使用设置的权重
         if price <= 25:
             return self.price_weights["20-25"]
         elif price <= 30:
@@ -1251,6 +1442,9 @@ class MenuApp:
                 self.avg_price_label.configure(text=f"人均: {int(avg_price)}元")
             else:
                 self.avg_price_label.configure(text=f"人均: {avg_price:.1f}元")
+            
+            # 添加自动保存
+            self.save_menu()
         except ValueError:
             self.avg_price_label.configure(text="人均: 0元")
 
@@ -1477,22 +1671,48 @@ class MenuApp:
                 if name in self.pages:
                     messagebox.showwarning("警告", "页面名称已存在！")
                     return
-                self.pages[name] = {}  # 创建新的空菜单
-                self.page_menu.insert_separator(len(self.pages) - 1)
-                self.page_menu.insert_command(len(self.pages) - 1, 
-                                            label=name,
-                                            command=lambda n=name: self.switch_page(n))
-                dialog.destroy()
-                self.switch_page(name)
+                
+                print(f"创建新页面: {name}")
+                # 创建新的空菜单
+                self.pages[name] = {}
+                
+                # 在分隔符之前插入新页面
+                separator_index = 0
+                for i in range(self.page_menu.index("end")):
+                    if self.page_menu.type(i) == "separator":
+                        separator_index = i
+                        break
+                
+                self.page_menu.insert_command(
+                    separator_index,
+                    label=name,
+                    command=lambda n=name: self.switch_page(n)
+                )
+                
+                # 切换到新页面
+                self.current_page = name
+                self.menu_items = self.pages[name]
+                self.page_button.configure(text=name)
+                self.selected_dishes.clear()
+                
+                # 更新菜单标题
+                self.menu_frame.configure(text=name)  # 立即更新标题
+                
+                # 立即保存配置
+                if self.save_menu():
+                    print(f"新页面 {name} 保存成功")
+                    dialog.destroy()
+                    # 更新显示
+                    self.update_menu_display()
+                    self.update_selected_display()
+                else:
+                    print(f"新页面 {name} 保存失败")
+                    messagebox.showerror("错误", "保存配置失败")
         
         ttk.Button(dialog, text="确定", command=save).pack(pady=5)
 
     def delete_page(self):
         """删除当前页面"""
-        if self.current_page == "佳佳美食":
-            messagebox.showwarning("警告", "默认页面不能删除！")
-            return
-        
         if messagebox.askyesno("确认删除", f"确定要删除页面 {self.current_page} 吗？"):
             # 删除页面数据
             del self.pages[self.current_page]
@@ -1518,26 +1738,246 @@ class MenuApp:
         self.current_page = page_name
         self.menu_items = self.pages[page_name]
         self.page_button.configure(text=f"{page_name}")
+        
+        # 更新菜单标题
+        self.menu_frame.configure(text=f"{page_name}")  # 只显示页面名称
+        
         self.update_menu_display()
         self.selected_dishes.clear()
         self.update_selected_display()
+        
+        # 在函数末尾添加自动保存
+        self.save_menu()
 
     def update_page_menu(self):
         """更新页面下拉菜单"""
-        # 清空现有菜单项
-        self.page_menu.delete(0, 'end')
+        try:
+            # 清空现有菜单项
+            self.page_menu.delete(0, 'end')
+            
+            print("正在更新页面菜单...")
+            print(f"当前所有页面: {list(self.pages.keys())}")
+            
+            # 添加所有页面
+            for page_name in self.pages.keys():
+                print(f"添加页面到菜单: {page_name}")  # 调试信息
+                self.page_menu.add_command(
+                    label=page_name,
+                    command=lambda n=page_name: self.switch_page(n)
+                )
+            
+            # 添加分隔符和管理选项
+            self.page_menu.add_separator()
+            self.page_menu.add_command(label="增加页面", command=self.add_page)
+            self.page_menu.add_command(label="重命名", command=self.rename_page)
+            self.page_menu.add_command(label="删除页面", command=self.delete_page)
+            
+            print("页面菜单更新完成")
+            
+        except Exception as e:
+            print(f"更新页面菜单时出错: {str(e)}")
+            messagebox.showerror("错误", f"更新页面菜单失败：{str(e)}")
+
+    def rename_page(self):
+        """重命名当前页面"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("重命名页面")
+        dialog.geometry("250x100")
+        dialog.resizable(False, False)
         
-        # 添加所有页面
-        for page_name in self.pages.keys():
-            self.page_menu.add_command(
-                label=page_name,
-                command=lambda n=page_name: self.switch_page(n)
+        # 设置图标
+        icon_path = self.get_resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            dialog.iconbitmap(icon_path)
+        
+        # 居中显示
+        self.center_window(dialog)
+        
+        ttk.Label(dialog, text="新页面名称:").pack(pady=5)
+        entry = ttk.Entry(dialog, width=30)
+        entry.insert(0, self.current_page)  # 默认显示当前页面名称
+        entry.pack(pady=5)
+        
+        def save():
+            new_name = entry.get().strip()
+            if new_name:
+                if new_name == self.current_page:
+                    dialog.destroy()
+                    return
+                
+                if new_name in self.pages:
+                    messagebox.showwarning("警告", "页面名称已存在！")
+                    return
+                
+                # 更新页面数据
+                self.pages[new_name] = self.pages[self.current_page]
+                del self.pages[self.current_page]
+                
+                # 更新菜单项
+                for i in range(self.page_menu.index("end")):
+                    try:
+                        if self.page_menu.entrycget(i, "label") == self.current_page:
+                            self.page_menu.entryconfigure(
+                                i,
+                                label=new_name,
+                                command=lambda n=new_name: self.switch_page(n)
+                            )
+                            break
+                    except:
+                        continue
+                
+                # 更新当前页面名称
+                self.current_page = new_name
+                self.page_button.configure(text=new_name)
+                
+                # 保存配置
+                self.save_menu()
+                
+                dialog.destroy()
+        
+        ttk.Button(dialog, text="确定", command=save).pack(pady=5)
+
+    def show_settings(self):
+        """显示帮助菜单"""
+        settings_menu = tk.Menu(self.root, tearoff=0)
+        settings_menu.add_command(label="概率调整", command=self.show_price_weights)
+        settings_menu.add_command(label="反馈问题", command=self.feedback_issue)
+        settings_menu.add_command(label="检查更新", command=self.manual_check_updates)
+        settings_menu.add_command(label="关于", command=self.show_about)
+        
+        x = self.settings_button.winfo_rootx()
+        y = self.settings_button.winfo_rooty() + self.settings_button.winfo_height()
+        settings_menu.post(x, y)
+
+    def feedback_issue(self):
+        """显示反馈问题窗口"""
+        feedback_window = tk.Toplevel(self.root)
+        feedback_window.title("反馈问题")
+        feedback_window.geometry("400x300")
+        feedback_window.resizable(False, False)
+        
+        # 设置图标
+        icon_path = self.get_resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            feedback_window.iconbitmap(icon_path)
+        
+        # 居中显示
+        self.center_window(feedback_window)
+        
+        # 创建内容框架
+        content_frame = ttk.Frame(feedback_window, padding="20")
+        content_frame.pack(fill='both', expand=True)
+        
+        # 直接添加文本输入框,不使用滚动条
+        text_box = tk.Text(
+            content_frame,
+            wrap=tk.WORD,
+            height=10,
+            width=40,  # 设置固定宽度
+            font=('Microsoft YaHei UI', 10)  # 使用微软雅黑字体
+        )
+        text_box.pack(fill='both', expand=True)
+        
+        # 添加提示文本
+        text_box.insert('1.0', "请在此处描述您遇到的问题...")
+        text_box.bind('<FocusIn>', lambda e: text_box.delete('1.0', tk.END) if text_box.get('1.0', tk.END).strip() == "请在此处描述您遇到的问题..." else None)
+        
+        # 添加确定按钮
+        def submit_feedback():
+            feedback_text = text_box.get('1.0', tk.END).strip()
+            if feedback_text and feedback_text != "请在此处描述您遇到的问题...":
+                #webbrowser.open(f"https://gitee.com/inueue/menu-app/issues/new?issue[title]=用户反馈&issue[description]={feedback_text}")
+                feedback_window.destroy()
+                messagebox.showinfo("成功", "感谢您的反馈！")
+            else:
+                messagebox.showwarning("提示", "请输入反馈内容")
+        
+        ttk.Button(
+            content_frame,
+            text="确定",
+            command=submit_feedback,
+            width=10
+        ).pack(pady=(20, 0))
+
+    def manual_check_updates(self):
+        """手动检查更新"""
+        try:
+            response = requests.get(
+                "https://gitee.com/api/v5/repos/inueue/menu-app/releases/latest",
+                timeout=5
             )
+            if response.status_code == 200:
+                data = response.json()
+                latest_version = data["tag_name"].lstrip("v")
+                
+                if version.parse(latest_version) > version.parse(self.VERSION):
+                    # 发现新版本时显示提示
+                    if messagebox.askyesno(
+                        "发现新版本",
+                        f"当前版本：{self.VERSION}\n"
+                        f"最新版本：{latest_version}\n\n"
+                        "是否前往下载页面更新？"
+                    ):
+                        webbrowser.open("https://gitee.com/inueue/menu-app/releases")
+                else:
+                    messagebox.showinfo("检查更新", "当前已是最新版本！")
+            else:
+                messagebox.showerror("检查更新", "获取版本信息失败，请稍后重试。")
+        except Exception as e:
+            messagebox.showerror("检查更新", f"检查更新失败：{str(e)}")
+
+    def show_about(self):
+        """显示关于窗口"""
+        about_window = tk.Toplevel(self.root)
+        about_window.title("关于")
+        about_window.geometry("300x210")  # 增加高度以容纳图标
+        about_window.resizable(False, False)
         
-        # 添加分隔符和管理选项
-        self.page_menu.add_separator()
-        self.page_menu.add_command(label="增加页面", command=self.add_page)
-        self.page_menu.add_command(label="删除页面", command=self.delete_page)
+        # 设置图标
+        icon_path = self.get_resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            about_window.iconbitmap(icon_path)
+        
+        # 居中显示
+        self.center_window(about_window)
+        
+        # 创建内容框架
+        content_frame = ttk.Frame(about_window, padding="20")
+        content_frame.pack(fill='both', expand=True)
+        
+        # 添加图标
+        try:
+            # 尝试加载并显示图标
+            from PIL import Image, ImageTk
+            icon_size = 64  # 图标大小
+            icon_image = Image.open(icon_path)
+            icon_image = icon_image.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
+            icon_photo = ImageTk.PhotoImage(icon_image)
+            
+            icon_label = ttk.Label(content_frame, image=icon_photo)
+            icon_label.image = icon_photo  # 保持引用防止被垃圾回收
+            icon_label.pack(pady=(0, 10))
+        except Exception as e:
+            print(f"加载图标失败: {str(e)}")
+        
+        # 使用更好的字体显示标题
+        ttk.Label(
+            content_frame,
+            text="今天吃什么",
+            font=('Microsoft YaHei UI', 16, 'bold')
+        ).pack(pady=(0, 5))
+        
+        ttk.Label(
+            content_frame,
+            text=f"欣仔专用版本 {self.VERSION}",
+            foreground='gray'
+        ).pack(pady=(0, 5))  # 减小与版权文字的间距
+        
+        ttk.Label(
+            content_frame,
+            text="Copyright © 2025 六乙. All Rights Reserved",
+            foreground='gray'
+        ).pack(pady=(5, 0))  # 减小与版本号的间距
 
 if __name__ == "__main__":
     root = tk.Tk()
